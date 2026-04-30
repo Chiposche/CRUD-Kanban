@@ -1,0 +1,12 @@
+name = "my-kanban-worker"
+main = "src/index.worker.ts"
+compatibility_date = "2024-04-03"
+
+[vars]
+# Coloque suas chaves públicas aqui. 
+# Chaves secretas devem ser adicionadas via dashboard ou 'wrangler secret put'
+ADMIN_EMAIL = "gchiposche@gmail.com"
+NODE_ENV = "production"
+
+[site]
+bucket = "./dist"
