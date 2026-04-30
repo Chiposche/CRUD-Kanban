@@ -1,0 +1,6 @@
+{
+  "name": "Elite Kanban CRUD",
+  "description": "A high-performance Kanban board with optimistic updates, PostgreSQL (Neon), and shadcn/ui.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
