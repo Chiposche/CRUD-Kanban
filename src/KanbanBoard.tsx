@@ -28,7 +28,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Task } from './db/schema';
+import { Project, Task } from './db/schema';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '@/lib/utils';
 import { translations, Language } from './lib/i18n';
@@ -36,6 +36,11 @@ import { toast } from 'sonner';
 import { TeamView } from './components/TeamView';
 import { AnalyticsView } from './components/AnalyticsView';
 import { SettingsView } from './components/SettingsView';
+import { ProjectGrid } from './components/ProjectGrid';
+import { TaskCompletionModal } from './components/TaskCompletionModal';
+import { useProjects } from './hooks/useProjects';
+import { Calendar, Clock, ChevronLeft, User as UserIcon, MessageSquare } from 'lucide-react';
+import { formatDistanceToNow } from 'date-fns';
 
 interface TaskCardProps {
   task: Task;
@@ -47,13 +52,22 @@ interface TaskCardProps {
 
 export default function KanbanBoard() {
   const queryClient = useQueryClient();
-  const { tasks, isLoading, updateTask, createTask, deleteTask } = useTasks();
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const { projects, createProject } = useProjects();
+  const { tasks, isLoading, updateTask, createTask, deleteTask } = useTasks(selectedProjectId || undefined);
+  
+  const selectedProject = projects.find(p => p.id === selectedProjectId);
+
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [lang, setLang] = useState<Language>('pt');
   const [activeNav, setActiveNav] = useState('board');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  const [completionModalTask, setCompletionModalTask] = useState<Task | null>(null);
+  const [isCompletionModalOpen, setIsCompletionModalOpen] = useState(false);
+  const [pendingStatusMove, setPendingStatusMove] = useState<{ id: string, status: Status } | null>(null);
 
   const [dbStatus, setDbStatus] = useState<{ connected: boolean; mode: string } | null>(null);
 
@@ -140,11 +154,35 @@ export default function KanbanBoard() {
 
     // PERSIST: Call the mutation to save to DB
     if (targetStatus && initialStatus !== targetStatus) {
-      updateTask.mutate({ id: task.id, status: targetStatus });
+      if (targetStatus === 'done') {
+        // Intercept Done move to show modal
+        setPendingStatusMove({ id: task.id, status: targetStatus });
+        setCompletionModalTask(task);
+        setIsCompletionModalOpen(true);
+      } else {
+        const updates: Partial<Task> = { status: targetStatus };
+        if (targetStatus === 'in_progress') updates.startedAt = new Date();
+        updateTask.mutate({ id: task.id, ...updates });
+      }
     }
 
     setActiveTask(null);
     setInitialStatus(null);
+  };
+
+  const handleCompletionConfirm = (data: { summary: string, completedBy: string }) => {
+    if (pendingStatusMove) {
+      updateTask.mutate({ 
+        id: pendingStatusMove.id, 
+        status: 'done',
+        completedAt: new Date(),
+        completedBy: data.completedBy,
+        completionSummary: data.summary
+      });
+    }
+    setIsCompletionModalOpen(false);
+    setCompletionModalTask(null);
+    setPendingStatusMove(null);
   };
 
   const handleCreateTask = () => {
@@ -253,96 +291,122 @@ export default function KanbanBoard() {
 
       {activeNav === 'board' ? (
         <>
-          {/* Kanban Toolbar */}
-      <div className="px-4 sm:px-10 py-6 sm:py-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shrink-0">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white mb-1">{t.toolbar.title}</h1>
-          <p className="text-zinc-500 text-xs font-mono uppercase tracking-widest italic flex items-center gap-2">
-            {t.toolbar.subtitle}
-          </p>
-        </div>
-        <div className="flex items-center justify-between w-full sm:w-auto gap-4">
-          <div className="hidden xs:flex -space-x-2.5">
-            <div className="w-8 h-8 rounded-full border-2 border-zinc-950 bg-zinc-700 ring-1 ring-white/5"></div>
-            <div className="w-8 h-8 rounded-full border-2 border-zinc-950 bg-zinc-600 ring-1 ring-white/5"></div>
-            <div className="w-8 h-8 rounded-full border-2 border-zinc-950 bg-zinc-800 flex items-center justify-center text-[10px] font-bold text-zinc-400 ring-1 ring-white/5">+4</div>
-          </div>
-          <div className="hidden xs:block h-6 w-px bg-zinc-800 mx-2"></div>
-          
-          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-            <DialogTrigger className="flex-1 sm:flex-none bg-white text-black text-sm font-semibold px-6 h-10 rounded-lg hover:bg-zinc-200 transition-all duration-200 shadow-lg shadow-white/5 cursor-pointer inline-flex items-center justify-center whitespace-nowrap">
-              <Plus className="mr-2 h-4 w-4" /> {t.toolbar.newTask}
-            </DialogTrigger>
-            <DialogContent className="bg-zinc-900 border-zinc-800 text-white rounded-2xl sm:max-w-[425px]">
-              <DialogHeader>
-                <DialogTitle className="text-2xl font-bold tracking-tight">{t.dialog.title}</DialogTitle>
-                <p className="text-zinc-400 text-sm">{t.dialog.description}</p>
-              </DialogHeader>
-              <div className="grid gap-6 py-6">
-                <div className="space-y-2">
-                  <label className="text-xs font-mono uppercase tracking-widest text-zinc-500">{t.dialog.inputLabel}</label>
-                  <Input
-                    placeholder={t.dialog.placeholder}
-                    value={newTaskTitle}
-                    onChange={(e) => setNewTaskTitle(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleCreateTask()}
-                    className="bg-zinc-950 border-zinc-800 text-white h-12 focus-visible:ring-indigo-500 rounded-xl"
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="ghost" onClick={() => setIsDialogOpen(false)} className="text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-xl">{t.dialog.cancel}</Button>
-                <Button onClick={handleCreateTask} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl px-8 shadow-lg shadow-indigo-500/20">{t.dialog.create}</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </div>
-      </div>
-
-      {/* Kanban Board Container */}
-      <main className="flex-1 px-4 sm:px-10 pb-8 flex gap-6 overflow-x-auto overflow-y-hidden custom-scrollbar scroll-smooth">
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCorners}
-          onDragStart={handleDragStart}
-          onDragOver={handleDragOver}
-          onDragEnd={handleDragEnd}
-        >
-          {STAGES.map((stage) => (
-            <KanbanColumn 
-              key={stage.id}
-              stage={stage}
-              tasks={tasks}
-              deleteTask={deleteTask}
-              lang={lang}
-              onAddTask={() => setIsDialogOpen(true)}
+          {!selectedProjectId ? (
+            <ProjectGrid 
+              projects={projects} 
+              onSelectProject={setSelectedProjectId} 
+              onCreateProject={(p) => createProject.mutate(p)}
             />
-          ))}
-
-          <DragOverlay dropAnimation={{
-            sideEffects: defaultDropAnimationSideEffects({
-              styles: {
-                active: {
-                  opacity: '0.4',
-                },
-              },
-            }),
-          }}>
-            {activeTask ? (
-              <div className="rotate-2 cursor-grabbing scale-[1.02] shadow-2xl shadow-black/50 ring-1 ring-white/10 rounded-xl overflow-hidden">
-                <div className="bg-zinc-900/80 backdrop-blur-xl border border-zinc-700">
-                  <TaskCard 
-                    task={activeTask} 
-                    labelColor={STAGES.find(s => s.id === activeTask.status)?.labelColor}
-                    lang={lang}
-                  />
+          ) : (
+            <>
+              {/* Kanban Toolbar */}
+              <div className="px-4 sm:px-10 py-6 sm:py-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shrink-0">
+                <div className="flex items-center gap-6">
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    onClick={() => setSelectedProjectId(null)}
+                    className="h-10 w-10 border border-zinc-800 rounded-xl hover:bg-zinc-900"
+                  >
+                    <ChevronLeft className="h-5 w-5" />
+                  </Button>
+                  <div>
+                    <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white mb-1">{selectedProject?.name}</h1>
+                    <p className="text-zinc-500 text-xs font-mono uppercase tracking-widest italic flex items-center gap-2">
+                       Gerenciando {tasks.length} tarefas neste workspace
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between w-full sm:w-auto gap-4">
+                  <div className="hidden xs:flex -space-x-2.5">
+                    <div className="w-8 h-8 rounded-full border-2 border-zinc-950 bg-zinc-700 ring-1 ring-white/5"></div>
+                    <div className="w-8 h-8 rounded-full border-2 border-zinc-950 bg-zinc-600 ring-1 ring-white/5"></div>
+                    <div className="w-8 h-8 rounded-full border-2 border-zinc-950 bg-zinc-800 flex items-center justify-center text-[10px] font-bold text-zinc-400 ring-1 ring-white/5">+4</div>
+                  </div>
+                  <div className="hidden xs:block h-6 w-px bg-zinc-800 mx-2"></div>
+                  
+                  <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                    <DialogTrigger className="flex-1 sm:flex-none bg-white text-black text-sm font-semibold px-6 h-10 rounded-lg hover:bg-zinc-200 transition-all duration-200 shadow-lg shadow-white/5 cursor-pointer inline-flex items-center justify-center whitespace-nowrap">
+                      <Plus className="mr-2 h-4 w-4" /> {t.toolbar.newTask}
+                    </DialogTrigger>
+                    <DialogContent className="bg-zinc-900 border-zinc-800 text-white rounded-2xl sm:max-w-[425px]">
+                      <DialogHeader>
+                        <DialogTitle className="text-2xl font-bold tracking-tight">{t.dialog.title}</DialogTitle>
+                        <p className="text-zinc-400 text-sm">{t.dialog.description}</p>
+                      </DialogHeader>
+                      <div className="grid gap-6 py-6">
+                        <div className="space-y-2">
+                          <label className="text-xs font-mono uppercase tracking-widest text-zinc-500">{t.dialog.inputLabel}</label>
+                          <Input
+                            placeholder={t.dialog.placeholder}
+                            value={newTaskTitle}
+                            onChange={(e) => setNewTaskTitle(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleCreateTask()}
+                            className="bg-zinc-950 border-zinc-800 text-white h-12 focus-visible:ring-indigo-500 rounded-xl"
+                          />
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button variant="ghost" onClick={() => setIsDialogOpen(false)} className="text-zinc-400 hover:text-white hover:bg-zinc-800 rounded-xl">{t.dialog.cancel}</Button>
+                        <Button onClick={handleCreateTask} className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl px-8 shadow-lg shadow-indigo-500/20">{t.dialog.create}</Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
                 </div>
               </div>
-            ) : null}
-          </DragOverlay>
-        </DndContext>
-      </main>
 
+              {/* Kanban Board Container */}
+              <main className="flex-1 px-4 sm:px-10 pb-8 flex gap-6 overflow-x-auto overflow-y-hidden custom-scrollbar scroll-smooth">
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCorners}
+                  onDragStart={handleDragStart}
+                  onDragOver={handleDragOver}
+                  onDragEnd={handleDragEnd}
+                >
+                  {STAGES.map((stage) => (
+                    <KanbanColumn 
+                      key={stage.id}
+                      stage={stage}
+                      tasks={tasks}
+                      deleteTask={deleteTask}
+                      lang={lang}
+                      onAddTask={() => setIsDialogOpen(true)}
+                    />
+                  ))}
+
+                  <DragOverlay dropAnimation={{
+                    sideEffects: defaultDropAnimationSideEffects({
+                      styles: { active: { opacity: '0.4' } },
+                    }),
+                  }}>
+                    {activeTask ? (
+                      <div className="rotate-2 cursor-grabbing scale-[1.02] shadow-2xl shadow-black/50 ring-1 ring-white/10 rounded-xl overflow-hidden">
+                        <div className="bg-zinc-900/80 backdrop-blur-xl border border-zinc-700">
+                          <TaskCard 
+                            task={activeTask} 
+                            labelColor={STAGES.find(s => s.id === activeTask.status)?.labelColor}
+                            lang={lang}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+                  </DragOverlay>
+                </DndContext>
+              </main>
+
+              <TaskCompletionModal 
+                isOpen={isCompletionModalOpen}
+                onClose={() => {
+                  setIsCompletionModalOpen(false);
+                  setCompletionModalTask(null);
+                  setPendingStatusMove(null);
+                }}
+                onConfirm={handleCompletionConfirm}
+                task={completionModalTask}
+              />
+            </>
+          )}
         </>
       ) : activeNav === 'team' ? (
         <TeamView />
@@ -448,6 +512,10 @@ function KanbanColumn({ stage, tasks, deleteTask, lang, onAddTask }: any) {
 function TaskCard({ task, onDelete, labelColor, lang, attributes, listeners }: TaskCardProps & { attributes?: any, listeners?: any }) {
   const t = translations[lang];
 
+  const inProgressTime = task.status === 'in_progress' && task.startedAt
+    ? formatDistanceToNow(new Date(task.startedAt), { addSuffix: false })
+    : null;
+
   return (
     <motion.div
       layout
@@ -475,38 +543,71 @@ function TaskCard({ task, onDelete, labelColor, lang, attributes, listeners }: T
                    </button>
                  )}
                  <div {...attributes} {...listeners} className="p-1 px-1.5 cursor-grab active:cursor-grabbing text-zinc-700 hover:text-zinc-500 transition-colors">
-                   <GripVertical className="h-4 w-4" />
+                    <GripVertical className="h-4 w-4" />
                  </div>
               </div>
            </div>
-           <CardTitle className="text-sm font-medium text-zinc-200 leading-snug">
-            {task.title}
-           </CardTitle>
+           
+           <div className="space-y-1">
+              <CardTitle className="text-sm font-medium text-zinc-200 leading-snug">
+                {task.title}
+              </CardTitle>
+              {task.deadline && (
+                <div className="flex items-center gap-1.5 text-[9px] text-amber-500 font-mono uppercase tracking-widest mt-1">
+                  <Calendar className="h-3 w-3" />
+                  Entrega: {new Date(task.deadline).toLocaleDateString()}
+                </div>
+              )}
+           </div>
         </CardHeader>
         
-        {task.description ? (
-          <CardContent className="px-4 py-2">
+        {task.description && (
+          <CardContent className="px-4 py-1">
             <p className="text-[11px] text-zinc-500 leading-relaxed line-clamp-2 italic">
               {task.description}
             </p>
           </CardContent>
-        ) : (
-          <CardContent className="px-4 py-1">
-            <div className="h-1 w-8 bg-zinc-800 rounded-full"></div>
-          </CardContent>
+        )}
+
+        {task.status === 'in_progress' && inProgressTime && (
+           <CardContent className="px-4 py-1">
+              <div className="flex items-center gap-1.5 text-[9px] text-emerald-500 font-mono uppercase tracking-widest">
+                <Clock className="h-3 w-3" />
+                Em progresso há {inProgressTime}
+              </div>
+           </CardContent>
+        )}
+
+        {task.status === 'done' && task.completionSummary && (
+           <CardContent className="px-4 py-1 border-t border-zinc-800/30 mt-2 pt-2">
+              <div className="flex items-start gap-2 bg-zinc-950/40 p-2 rounded-lg border border-zinc-800/50">
+                <MessageSquare className="h-3 w-3 text-indigo-400 mt-0.5 shrink-0" />
+                <p className="text-[9px] text-zinc-400 italic line-clamp-2">
+                  {task.completionSummary}
+                </p>
+              </div>
+           </CardContent>
         )}
 
         <CardFooter className="px-4 py-4 flex justify-between items-center bg-zinc-950/20 mt-2">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full bg-zinc-800 border border-zinc-700/50 flex items-center justify-center">
-               <span className="text-[8px] font-bold text-zinc-500 uppercase">{task.title[0]}</span>
+            <div className="w-6 h-6 rounded-full bg-zinc-800 border border-zinc-700/50 flex items-center justify-center overflow-hidden">
+               {task.assignee ? (
+                 <div className="w-full h-full bg-indigo-500 flex items-center justify-center text-[8px] font-bold text-white">
+                   {task.assignee[0]}
+                 </div>
+               ) : (
+                 <UserIcon className="h-3 w-3 text-zinc-600" />
+               )}
             </div>
-            <span className="text-[9px] font-mono text-zinc-600 tracking-tighter">
-              #{task.id.slice(0, 7)}
-            </span>
+            <div className="flex flex-col">
+              <span className="text-[9px] font-mono text-zinc-500">
+                {task.status === 'done' ? (task.completedBy || task.assignee || 'Finalizado') : (task.assignee || 'Sem Responsável')}
+              </span>
+            </div>
           </div>
-          <span className="text-[9px] font-mono text-zinc-600 uppercase">
-             {t.card.synced}
+          <span className="text-[9px] font-mono text-zinc-700 tracking-tighter">
+             #{task.id.slice(0, 7)}
           </span>
         </CardFooter>
       </Card>

@@ -3,13 +3,14 @@ import { API_URL } from '../lib/api-client';
 import { Task, NewTask } from '../db/schema';
 import { toast } from 'sonner';
 
-export function useTasks() {
+export function useTasks(projectId?: string) {
   const queryClient = useQueryClient();
 
   const { data: tasks = [], isLoading, error } = useQuery<Task[]>({
-    queryKey: ['tasks'],
+    queryKey: ['tasks', projectId],
     queryFn: async () => {
-      const res = await fetch(`${API_URL}/tasks`);
+      const url = projectId ? `${API_URL}/tasks?projectId=${projectId}` : `${API_URL}/tasks`;
+      const res = await fetch(url);
       if (!res.ok) throw new Error('Failed to fetch tasks');
       return res.json();
     },
@@ -20,7 +21,7 @@ export function useTasks() {
       const res = await fetch(`${API_URL}/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newTask),
+        body: JSON.stringify({ ...newTask, projectId }),
       });
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
@@ -29,7 +30,7 @@ export function useTasks() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
       toast.success('Tarefa criada com sucesso!');
     },
     onError: (err: any) => {
@@ -53,24 +54,24 @@ export function useTasks() {
     // OPTIMISTIC UPDATE
     onMutate: async ({ id, ...updates }) => {
       // 1. Immediately update the cache for instant UI feedback
-      queryClient.setQueryData<Task[]>(['tasks'], (old) =>
+      queryClient.setQueryData<Task[]>(['tasks', projectId], (old) =>
         old?.map((task) => (task.id === id ? { ...task, ...updates } : task))
       );
 
       // 2. Perform background cancellation and save previous state
-      await queryClient.cancelQueries({ queryKey: ['tasks'] });
-      const previousTasks = queryClient.getQueryData<Task[]>(['tasks']);
+      await queryClient.cancelQueries({ queryKey: ['tasks', projectId] });
+      const previousTasks = queryClient.getQueryData<Task[]>(['tasks', projectId]);
 
       return { previousTasks };
     },
     onError: (err, variables, context) => {
       if (context?.previousTasks) {
-        queryClient.setQueryData(['tasks'], context.previousTasks);
+        queryClient.setQueryData(['tasks', projectId], context.previousTasks);
       }
       toast.error(`Erro ao atualizar: ${err.message}`);
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
     },
   });
 
@@ -81,21 +82,21 @@ export function useTasks() {
       return res.json();
     },
     onMutate: async (id) => {
-      await queryClient.cancelQueries({ queryKey: ['tasks'] });
-      const previousTasks = queryClient.getQueryData<Task[]>(['tasks']);
-      queryClient.setQueryData<Task[]>(['tasks'], (old) =>
+      await queryClient.cancelQueries({ queryKey: ['tasks', projectId] });
+      const previousTasks = queryClient.getQueryData<Task[]>(['tasks', projectId]);
+      queryClient.setQueryData<Task[]>(['tasks', projectId], (old) =>
         old?.filter((task) => task.id !== id)
       );
       return { previousTasks };
     },
     onError: (err, id, context) => {
       if (context?.previousTasks) {
-        queryClient.setQueryData(['tasks'], context.previousTasks);
+        queryClient.setQueryData(['tasks', projectId], context.previousTasks);
       }
       toast.error(`Erro ao deletar: ${err.message}`);
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
     },
   });
 
