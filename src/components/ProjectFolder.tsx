@@ -1,7 +1,7 @@
 import React from 'react';
 import { Project } from '../db/schema';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
-import { Folder, MoreVertical, Calendar, Layers } from 'lucide-react';
+import { Folder, MoreVertical, Calendar, Layers, Trash2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -9,11 +9,12 @@ import { Button } from '@/components/ui/button';
 interface ProjectFolderProps {
   project: Project;
   onSelect: (id: string) => void;
+  onDelete?: (e: React.MouseEvent, id: string) => void;
   taskCount?: number;
   key?: string | number;
 }
 
-export function ProjectFolder({ project, onSelect, taskCount = 0 }: ProjectFolderProps) {
+export function ProjectFolder({ project, onSelect, onDelete, taskCount = 0 }: ProjectFolderProps) {
   return (
     <motion.div
       whileHover={{ y: -5 }}
@@ -28,9 +29,22 @@ export function ProjectFolder({ project, onSelect, taskCount = 0 }: ProjectFolde
             <div className="p-3 bg-white text-black rounded-xl shadow-lg ring-1 ring-white/10 group-hover:rotate-6 transition-transform">
               <Folder className="h-6 w-6" />
             </div>
-            <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-600 hover:text-white rounded-full">
-              <MoreVertical className="h-4 w-4" />
-            </Button>
+            {onDelete ? (
+              <button 
+                className="h-8 w-8 flex items-center justify-center text-zinc-600 hover:text-red-500 hover:bg-red-500/10 rounded-full transition-colors cursor-pointer z-10"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onDelete(e, project.id);
+                }}
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            ) : (
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-600 hover:text-white rounded-full">
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            )}
           </div>
           
           <h3 className="text-xl font-bold text-white mb-2 group-hover:text-indigo-400 transition-colors">

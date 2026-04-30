@@ -4,6 +4,7 @@ import { Mail, Github, Twitter, MapPin, ExternalLink } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { translations, Language } from '../lib/i18n';
 
 const TEAM_MEMBERS = [
   {
@@ -44,13 +45,18 @@ const TEAM_MEMBERS = [
   }
 ];
 
-export function TeamView() {
+interface TeamViewProps {
+  lang: Language;
+}
+
+export function TeamView({ lang }: TeamViewProps) {
+  const t = translations[lang].team;
   return (
     <div className="flex-1 overflow-y-auto custom-scrollbar p-6 sm:p-10">
       <div className="max-w-6xl mx-auto">
         <header className="mb-10">
-          <h2 className="text-3xl font-bold text-white mb-2">Equipe do Projeto</h2>
-          <p className="text-zinc-500 text-sm">Colaboradores ativos e seus status atuais no workspace.</p>
+          <h2 className="text-3xl font-bold text-white mb-2">{t.header}</h2>
+          <p className="text-zinc-500 text-sm">{t.subHeader}</p>
         </header>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -104,11 +110,11 @@ export function TeamView() {
 
         <section className="mt-16 bg-zinc-900/50 border border-zinc-800 rounded-2xl p-8 flex flex-col md:flex-row items-center justify-between gap-6">
           <div>
-            <h3 className="text-xl font-bold text-white mb-2">Deseja expandir a equipe?</h3>
-            <p className="text-zinc-500 text-sm">Convide novos membros para colaborar neste quadro em tempo real.</p>
+            <h3 className="text-xl font-bold text-white mb-2">{t.expandTitle}</h3>
+            <p className="text-zinc-500 text-sm">{t.expandSub}</p>
           </div>
           <Button className="bg-white text-black hover:bg-zinc-200 font-bold px-8 h-12 rounded-xl shadow-lg shadow-white/5">
-            Convidar Membros
+            {t.inviteButton}
           </Button>
         </section>
       </div>

@@ -9,8 +9,11 @@ export function useTasks(projectId?: string) {
   const { data: tasks = [], isLoading, error } = useQuery<Task[]>({
     queryKey: ['tasks', projectId],
     queryFn: async () => {
+      const token = localStorage.getItem('access-token') || 'visitor';
       const url = projectId ? `${API_URL}/tasks?projectId=${projectId}` : `${API_URL}/tasks`;
-      const res = await fetch(url);
+      const res = await fetch(url, {
+        headers: { 'x-access-token': token }
+      });
       if (!res.ok) throw new Error('Failed to fetch tasks');
       return res.json();
     },
@@ -18,9 +21,13 @@ export function useTasks(projectId?: string) {
 
   const createTask = useMutation({
     mutationFn: async (newTask: Omit<NewTask, 'id'>) => {
+      const token = localStorage.getItem('access-token') || 'visitor';
       const res = await fetch(`${API_URL}/tasks`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-access-token': token
+        },
         body: JSON.stringify({ ...newTask, projectId }),
       });
       if (!res.ok) {
@@ -40,9 +47,13 @@ export function useTasks(projectId?: string) {
 
   const updateTask = useMutation({
     mutationFn: async ({ id, ...updates }: Partial<Task> & { id: string }) => {
+      const token = localStorage.getItem('access-token') || 'visitor';
       const res = await fetch(`${API_URL}/tasks/${id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-access-token': token
+        },
         body: JSON.stringify(updates),
       });
       if (!res.ok) {
@@ -77,7 +88,11 @@ export function useTasks(projectId?: string) {
 
   const deleteTask = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`${API_URL}/tasks/${id}`, { method: 'DELETE' });
+      const token = localStorage.getItem('access-token') || 'visitor';
+      const res = await fetch(`${API_URL}/tasks/${id}`, { 
+        method: 'DELETE',
+        headers: { 'x-access-token': token }
+      });
       if (!res.ok) throw new Error('Failed to delete task');
       return res.json();
     },

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Trash2, GripVertical, Info, Languages, Menu, X } from 'lucide-react';
+import { Plus, Trash2, GripVertical, Info, Languages, Menu, X, Maximize2, MoreVertical } from 'lucide-react';
 import { useTasks } from './hooks/useTasks';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -27,6 +27,12 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { 
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
+  DropdownMenuTrigger 
+} from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Project, Task } from './db/schema';
 import { motion, AnimatePresence } from 'motion/react';
@@ -41,10 +47,20 @@ import { TaskCompletionModal } from './components/TaskCompletionModal';
 import { useProjects } from './hooks/useProjects';
 import { Calendar, Clock, ChevronLeft, User as UserIcon, MessageSquare } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+
+const STAGES_CONFIG = [
+  { id: 'todo', labelColor: 'text-indigo-400' },
+  { id: 'in_progress', labelColor: 'text-emerald-400' },
+  { id: 'done', labelColor: 'text-zinc-500' },
+] as const;
+
+type Status = typeof STAGES_CONFIG[number]['id'];
 
 interface TaskCardProps {
   task: Task;
   onDelete?: () => void;
+  onMove?: (status: Status) => void;
   key?: string | number;
   labelColor?: string;
   lang: Language;
@@ -53,7 +69,7 @@ interface TaskCardProps {
 export default function KanbanBoard() {
   const queryClient = useQueryClient();
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  const { projects, createProject } = useProjects();
+  const { projects, createProject, deleteProject } = useProjects();
   const { tasks, isLoading, updateTask, createTask, deleteTask } = useTasks(selectedProjectId || undefined);
   
   const selectedProject = projects.find(p => p.id === selectedProjectId);
@@ -70,6 +86,10 @@ export default function KanbanBoard() {
   const [pendingStatusMove, setPendingStatusMove] = useState<{ id: string, status: Status } | null>(null);
 
   const [dbStatus, setDbStatus] = useState<{ connected: boolean; mode: string } | null>(null);
+  const [userToken, setUserToken] = useState<string>(localStorage.getItem('access-token') || 'visitor');
+  const [isAdmin, setIsAdmin] = useState<boolean>(false);
+  const [isLoginDialogOpen, setIsLoginDialogOpen] = useState(false);
+  const [tempToken, setTempToken] = useState('');
 
   React.useEffect(() => {
     fetch('/api/health')
@@ -78,6 +98,31 @@ export default function KanbanBoard() {
       .catch(() => setDbStatus({ connected: false, mode: 'Offline' }));
   }, []);
 
+  React.useEffect(() => {
+    fetch('/api/me', { headers: { 'x-access-token': userToken } })
+      .then(res => res.json())
+      .then(data => setIsAdmin(data.isOwner))
+      .catch(() => setIsAdmin(false));
+  }, [userToken]);
+
+  const handleLogin = () => {
+    if (!tempToken.trim()) return;
+    localStorage.setItem('access-token', tempToken.trim());
+    setUserToken(tempToken.trim());
+    setIsLoginDialogOpen(false);
+    setTempToken('');
+    queryClient.invalidateQueries();
+    toast.success(`Acesso identificado`);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('access-token');
+    setUserToken('visitor');
+    setIsAdmin(false);
+    queryClient.invalidateQueries();
+    toast.info('Modo Visitante ativado');
+  };
+
   const t = translations[lang];
 
   const STAGES = [
@@ -85,8 +130,6 @@ export default function KanbanBoard() {
     { id: 'in_progress', title: t.stages.in_progress, labelColor: 'text-emerald-400' },
     { id: 'done', title: t.stages.done, labelColor: 'text-zinc-500' },
   ] as const;
-
-  type Status = typeof STAGES[number]['id'];
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 3 } }),
@@ -246,18 +289,62 @@ export default function KanbanBoard() {
           <div className="hidden sm:flex items-center gap-2 bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-full">
             <div className={cn(
               "w-2 h-2 rounded-full transition-all duration-500",
-              dbStatus?.connected ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" : 
-              dbStatus === null ? "bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)] animate-pulse" :
-              "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]"
+              isAdmin ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" : "bg-amber-500"
             )}></div>
             <span className={cn(
               "text-[10px] font-mono uppercase tracking-widest",
-              dbStatus?.connected ? "text-emerald-500" : "text-amber-400"
+              isAdmin ? "text-emerald-500" : "text-amber-500"
             )}>
-              {dbStatus?.mode === "Mock In-Memory" ? "⚠️ MOCK MODE (NO DB)" : (dbStatus?.mode || "Connecting...")}
+              {isAdmin ? t.system.persistent : t.system.ephemeral}
             </span>
           </div>
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 ring-2 ring-zinc-800"></div>
+
+          <Dialog open={isLoginDialogOpen} onOpenChange={setIsLoginDialogOpen}>
+             <DialogTrigger 
+                render={
+                  <button 
+                    className={cn(
+                      "w-8 h-8 rounded-full ring-2 ring-zinc-800 transition-all flex items-center justify-center overflow-hidden cursor-pointer",
+                      isAdmin ? "bg-emerald-600" : "bg-zinc-800 hover:bg-zinc-700"
+                    )}
+                    title={userToken === 'visitor' ? 'Visitante' : 'Privado'}
+                  />
+                }
+             >
+                {isAdmin ? <UserIcon className="h-4 w-4 text-white" /> : <div className="text-[10px] font-bold text-zinc-500">?</div>}
+             </DialogTrigger>
+             <DialogContent className="bg-zinc-900 border-zinc-800 text-white rounded-2xl sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle className="text-xl font-bold">Código de Acesso</DialogTitle>
+                </DialogHeader>
+                <div className="py-4 space-y-4">
+                  <p className="text-zinc-400 text-sm">
+                    Digite seu código de acesso para carregar seus dados privados. O proprietário master tem persistência vitalícia, visitantes têm os dados apagados a cada 30 minutos.
+                  </p>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-mono uppercase text-zinc-500">Voucher / Senha</label>
+                    <Input 
+                      type="password"
+                      placeholder="••••••••" 
+                      value={tempToken}
+                      onChange={(e) => setTempToken(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                      className="bg-zinc-950 border-zinc-800"
+                    />
+                  </div>
+                  {userToken !== 'visitor' && (
+                    <Button variant="ghost" onClick={handleLogout} className="w-full text-zinc-500 hover:text-red-400">
+                      Limpar Sessão / Modo Visitante
+                    </Button>
+                  )}
+                </div>
+                <DialogFooter>
+                   <Button onClick={handleLogin} className="bg-indigo-600 hover:bg-indigo-500 text-white w-full">
+                     Validar Acesso
+                   </Button>
+                </DialogFooter>
+             </DialogContent>
+          </Dialog>
         </div>
       </header>
 
@@ -296,6 +383,11 @@ export default function KanbanBoard() {
               projects={projects} 
               onSelectProject={setSelectedProjectId} 
               onCreateProject={(p) => createProject.mutate(p)}
+              onDeleteProject={(id) => {
+                // Removendo window.confirm para teste em iframe
+                deleteProject.mutate(id);
+              }}
+              lang={lang}
             />
           ) : (
             <>
@@ -313,7 +405,7 @@ export default function KanbanBoard() {
                   <div>
                     <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white mb-1">{selectedProject?.name}</h1>
                     <p className="text-zinc-500 text-xs font-mono uppercase tracking-widest italic flex items-center gap-2">
-                       Gerenciando {tasks.length} tarefas neste workspace
+                       {t.analytics.boardSubHeader.replace('{count}', tasks.length.toString())}
                     </p>
                   </div>
                 </div>
@@ -326,7 +418,11 @@ export default function KanbanBoard() {
                   <div className="hidden xs:block h-6 w-px bg-zinc-800 mx-2"></div>
                   
                   <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                    <DialogTrigger className="flex-1 sm:flex-none bg-white text-black text-sm font-semibold px-6 h-10 rounded-lg hover:bg-zinc-200 transition-all duration-200 shadow-lg shadow-white/5 cursor-pointer inline-flex items-center justify-center whitespace-nowrap">
+                    <DialogTrigger 
+                      render={
+                        <button className="flex-1 sm:flex-none bg-white text-black text-sm font-semibold px-6 h-10 rounded-lg hover:bg-zinc-200 transition-all duration-200 shadow-lg shadow-white/5 cursor-pointer inline-flex items-center justify-center whitespace-nowrap" />
+                      }
+                    >
                       <Plus className="mr-2 h-4 w-4" /> {t.toolbar.newTask}
                     </DialogTrigger>
                     <DialogContent className="bg-zinc-900 border-zinc-800 text-white rounded-2xl sm:max-w-[425px]">
@@ -356,7 +452,7 @@ export default function KanbanBoard() {
               </div>
 
               {/* Kanban Board Container */}
-              <main className="flex-1 px-4 sm:px-10 pb-8 flex gap-6 overflow-x-auto overflow-y-hidden custom-scrollbar scroll-smooth">
+              <main className="flex-1 px-4 sm:px-10 pb-8 flex gap-6 overflow-x-auto overflow-y-auto custom-scrollbar scroll-smooth">
                 <DndContext
                   sensors={sensors}
                   collisionDetection={closestCorners}
@@ -370,6 +466,10 @@ export default function KanbanBoard() {
                       stage={stage}
                       tasks={tasks}
                       deleteTask={deleteTask}
+                      updateTask={updateTask}
+                      setPendingStatusMove={setPendingStatusMove}
+                      setCompletionModalTask={setCompletionModalTask}
+                      setIsCompletionModalOpen={setIsCompletionModalOpen}
                       lang={lang}
                       onAddTask={() => setIsDialogOpen(true)}
                     />
@@ -404,16 +504,17 @@ export default function KanbanBoard() {
                 }}
                 onConfirm={handleCompletionConfirm}
                 task={completionModalTask}
+                lang={lang}
               />
             </>
           )}
         </>
       ) : activeNav === 'team' ? (
-        <TeamView />
+        <TeamView lang={lang} />
       ) : activeNav === 'analytics' ? (
-        <AnalyticsView tasks={tasks} />
+        <AnalyticsView tasks={tasks} lang={lang} />
       ) : activeNav === 'settings' ? (
-        <SettingsView />
+        <SettingsView lang={lang} />
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center p-10 text-center">
           <div className="w-16 h-16 bg-zinc-900 rounded-2xl flex items-center justify-center mb-6 ring-1 ring-white/10">
@@ -459,62 +560,168 @@ export default function KanbanBoard() {
   );
 }
 
-function KanbanColumn({ stage, tasks, deleteTask, lang, onAddTask }: any) {
+function KanbanColumn({ 
+  stage, 
+  tasks, 
+  deleteTask, 
+  updateTask, 
+  setPendingStatusMove, 
+  setCompletionModalTask, 
+  setIsCompletionModalOpen, 
+  lang, 
+  onAddTask 
+}: any) {
+  const t = translations[lang];
   const { setNodeRef } = useDroppable({
     id: stage.id,
   });
 
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const columnTasks = tasks.filter((t: any) => t.status === stage.id);
+
   return (
-    <div className="flex-1 flex flex-col min-w-[280px] sm:min-w-[320px] max-w-[400px]">
-      <div className="mb-5 flex items-center justify-between px-2">
-        <div className="flex items-center gap-3">
-          <h2 className="text-sm font-semibold text-zinc-300 tracking-wide uppercase">
-            {stage.title}
-          </h2>
-          <span className="font-mono text-[11px] text-zinc-500 border border-zinc-800 px-2 py-0.5 rounded-full bg-zinc-900/50">
-            {tasks.filter((t) => t.status === stage.id).length}
-          </span>
+    <>
+      <div className="flex-1 flex flex-col min-w-[280px] sm:min-w-[320px] max-w-[400px]">
+        <div className="mb-5 flex items-center justify-between px-2">
+          <div className="flex items-center gap-3">
+            <h2 className="text-sm font-semibold text-zinc-300 tracking-wide uppercase">
+              {stage.title}
+            </h2>
+            <span className="font-mono text-[11px] text-zinc-500 border border-zinc-800 px-2 py-0.5 rounded-full bg-zinc-900/50">
+              {columnTasks.length}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => setIsExpanded(true)}
+              className="p-1.5 text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800 rounded-md transition-all"
+              title="Expandir Coluna"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+            </button>
+            <button 
+              onClick={onAddTask}
+              className="p-1 px-2 text-zinc-600 hover:text-zinc-400 hover:bg-zinc-800 rounded-md transition-all text-lg font-light leading-none"
+            >
+              +
+            </button>
+          </div>
         </div>
-        <button 
-          onClick={onAddTask}
-          className="text-zinc-600 hover:text-zinc-400 transition-colors text-lg font-light"
-        >
-          +
-        </button>
+
+        <ScrollArea className="flex-1 bg-zinc-900/30 border border-zinc-800 rounded-2xl p-3 relative min-h-[400px]">
+          <div ref={setNodeRef} className="h-full min-h-[300px]">
+            <SortableContext
+                items={columnTasks.map((t: any) => t.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="flex flex-col gap-3">
+                  <AnimatePresence initial={false}>
+                    {columnTasks.map((task: any) => (
+                        <SortableTaskCard 
+                          key={task.id} 
+                          task={task} 
+                          onDelete={() => deleteTask.mutate(task.id)}
+                          labelColor={stage.labelColor}
+                          lang={lang}
+                        />
+                      ))}
+                  </AnimatePresence>
+                </div>
+              </SortableContext>
+          </div>
+        </ScrollArea>
       </div>
 
-      <div ref={setNodeRef} className="flex-1 bg-zinc-900/30 border border-zinc-800 rounded-2xl p-3 relative min-h-[300px]">
-        <SortableContext
-          items={tasks.filter((t) => t.status === stage.id).map((t) => t.id)}
-          strategy={verticalListSortingStrategy}
-        >
-          <div className="flex flex-col gap-3 h-full">
-            <AnimatePresence initial={false}>
-              {tasks
-                .filter((t) => t.status === stage.id)
-                .map((task) => (
-                  <SortableTaskCard 
-                    key={task.id} 
-                    task={task} 
-                    onDelete={() => deleteTask.mutate(task.id)}
-                    labelColor={stage.labelColor}
-                    lang={lang}
-                  />
+      {/* Expanded Column Modal */}
+      <Dialog open={isExpanded} onOpenChange={setIsExpanded}>
+        <DialogContent className="max-w-4xl bg-zinc-950 border-zinc-800 text-white rounded-3xl h-[85vh] flex flex-col p-0 overflow-hidden">
+           <DialogHeader className="p-8 border-b border-zinc-800 shrink-0">
+             <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-3 mb-1">
+                    <DialogTitle className="text-3xl font-bold tracking-tight">
+                      {stage.title}
+                    </DialogTitle>
+                    <Badge variant="outline" className="bg-zinc-900 text-zinc-400 border-zinc-800 px-3">
+                      {columnTasks.length} {columnTasks.length === 1 ? t.analytics.expandedView.task : t.analytics.expandedView.tasks}
+                    </Badge>
+                  </div>
+                  <p className="text-zinc-500">{t.analytics.expandedView.description.replace('{stage}', stage.title.toLowerCase())}</p>
+                </div>
+             </div>
+           </DialogHeader>
+           
+           <ScrollArea className="flex-1 p-8 bg-zinc-950/50">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {columnTasks.map((task: any) => (
+                  <div key={task.id} className="relative group">
+                     <TaskCard 
+                        task={task}
+                        labelColor={stage.labelColor}
+                        lang={lang}
+                        onDelete={() => deleteTask.mutate(task.id)}
+                        onMove={(newStatus) => {
+                          if (newStatus === 'done') {
+                            setPendingStatusMove({ id: task.id, status: 'done' });
+                            setCompletionModalTask(task);
+                            setIsCompletionModalOpen(true);
+                          } else {
+                            const updates: Partial<Task> = { status: newStatus };
+                            if (newStatus === 'in_progress') updates.startedAt = new Date();
+                            updateTask.mutate({ id: task.id, ...updates });
+                          }
+                        }}
+                     />
+                  </div>
                 ))}
-            </AnimatePresence>
-          </div>
-        </SortableContext>
-      </div>
-    </div>
+                {columnTasks.length === 0 && (
+                  <div className="col-span-full py-20 flex flex-col items-center justify-center text-zinc-600 border-2 border-dashed border-zinc-900 rounded-3xl">
+                     <p>{t.analytics.expandedView.empty}</p>
+                  </div>
+                )}
+              </div>
+           </ScrollArea>
+
+           <DialogFooter className="p-6 border-t border-zinc-800 bg-zinc-900/20">
+              <Button 
+                variant="outline" 
+                onClick={() => setIsExpanded(false)}
+                className="border-zinc-800 hover:bg-zinc-800 rounded-xl"
+              >
+                {t.analytics.expandedView.close}
+              </Button>
+              <Button 
+                onClick={() => {
+                  setIsExpanded(false);
+                  onAddTask();
+                }}
+                className="bg-white text-black hover:bg-zinc-200 rounded-xl"
+              >
+                {t.analytics.expandedView.addNew}
+              </Button>
+           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
-function TaskCard({ task, onDelete, labelColor, lang, attributes, listeners }: TaskCardProps & { attributes?: any, listeners?: any }) {
+function TaskCard({ task, onDelete, onMove, labelColor, lang, attributes, listeners }: TaskCardProps & { attributes?: any, listeners?: any }) {
   const t = translations[lang];
 
   const inProgressTime = task.status === 'in_progress' && task.startedAt
-    ? formatDistanceToNow(new Date(task.startedAt), { addSuffix: false })
+    ? formatDistanceToNow(new Date(task.startedAt), { 
+        addSuffix: false,
+        locale: lang === 'pt' ? ptBR : undefined 
+      })
     : null;
+
+  const STAGES = [
+    { id: 'todo', title: t.stages.todo },
+    { id: 'in_progress', title: t.stages.in_progress },
+    { id: 'done', title: t.stages.done },
+  ];
 
   return (
     <motion.div
@@ -531,6 +738,29 @@ function TaskCard({ task, onDelete, labelColor, lang, attributes, listeners }: T
                 {task.status === 'todo' ? t.card.backlog : task.status === 'in_progress' ? t.card.optimization : t.card.verified}
               </span>
               <div className="flex items-center gap-1">
+                {onMove && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger render={
+                      <button className="p-1.5 hover:bg-zinc-800 text-zinc-500 hover:text-white rounded-lg transition-colors cursor-pointer" />
+                    }>
+                      <MoreVertical className="h-3.5 w-3.5" />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent className="bg-zinc-900 border-zinc-800 text-white min-w-[140px]">
+                      <div className="px-2 py-1.5 text-[10px] font-mono uppercase text-zinc-500 border-b border-zinc-800 mb-1">
+                        {t.card.move}
+                      </div>
+                      {STAGES.filter(s => s.id !== task.status).map(stage => (
+                        <DropdownMenuItem 
+                          key={stage.id}
+                          onClick={() => onMove(stage.id as Status)}
+                          className="text-xs hover:bg-zinc-800 cursor-pointer"
+                        >
+                          {stage.title}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
                 {onDelete && (
                    <button
                     onClick={(e) => {
@@ -555,7 +785,7 @@ function TaskCard({ task, onDelete, labelColor, lang, attributes, listeners }: T
               {task.deadline && (
                 <div className="flex items-center gap-1.5 text-[9px] text-amber-500 font-mono uppercase tracking-widest mt-1">
                   <Calendar className="h-3 w-3" />
-                  Entrega: {new Date(task.deadline).toLocaleDateString()}
+                  {t.card.deadline}: {new Date(task.deadline).toLocaleDateString()}
                 </div>
               )}
            </div>
@@ -573,7 +803,7 @@ function TaskCard({ task, onDelete, labelColor, lang, attributes, listeners }: T
            <CardContent className="px-4 py-1">
               <div className="flex items-center gap-1.5 text-[9px] text-emerald-500 font-mono uppercase tracking-widest">
                 <Clock className="h-3 w-3" />
-                Em progresso há {inProgressTime}
+                {t.card.inProgressSince} {inProgressTime}
               </div>
            </CardContent>
         )}
@@ -602,7 +832,7 @@ function TaskCard({ task, onDelete, labelColor, lang, attributes, listeners }: T
             </div>
             <div className="flex flex-col">
               <span className="text-[9px] font-mono text-zinc-500">
-                {task.status === 'done' ? (task.completedBy || task.assignee || 'Finalizado') : (task.assignee || 'Sem Responsável')}
+                {task.status === 'done' ? (task.completedBy || task.assignee || t.card.finished) : (task.assignee || t.card.noAssignee)}
               </span>
             </div>
           </div>

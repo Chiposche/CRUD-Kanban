@@ -9,7 +9,10 @@ export function useProjects() {
   const { data: projects = [], isLoading } = useQuery<Project[]>({
     queryKey: ['projects'],
     queryFn: async () => {
-      const res = await fetch(`${API_URL}/projects`);
+      const token = localStorage.getItem('access-token') || 'visitor';
+      const res = await fetch(`${API_URL}/projects`, {
+        headers: { 'x-access-token': token }
+      });
       if (!res.ok) throw new Error('Failed to fetch projects');
       return res.json();
     },
@@ -17,9 +20,13 @@ export function useProjects() {
 
   const createProject = useMutation({
     mutationFn: async (project: NewProject) => {
+      const token = localStorage.getItem('access-token') || 'visitor';
       const res = await fetch(`${API_URL}/projects`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-access-token': token
+        },
         body: JSON.stringify(project),
       });
       if (!res.ok) throw new Error('Failed to create project');
@@ -33,14 +40,24 @@ export function useProjects() {
 
   const deleteProject = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`${API_URL}/projects/${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete project');
+      const token = localStorage.getItem('access-token') || 'visitor';
+      const res = await fetch(`${API_URL}/projects/${id}`, { 
+        method: 'DELETE',
+        headers: { 'x-access-token': token }
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Falha ao excluir projeto');
+      }
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
-      toast.success('Projeto excluído.');
+      toast.success('Projeto excluído com sucesso');
     },
+    onError: (error: Error) => {
+      toast.error(`Erro ao excluir: ${error.message}`);
+    }
   });
 
   return { projects, isLoading, createProject, deleteProject };

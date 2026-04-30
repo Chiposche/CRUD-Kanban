@@ -4,6 +4,7 @@ export const projects = pgTable('projects', {
   id: uuid('id').defaultRandom().primaryKey(),
   name: text('name').notNull(),
   description: text('description'),
+  ownerEmail: text('owner_email').notNull().default('visitor'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -15,6 +16,7 @@ export const tasks = pgTable('tasks', {
   description: text('description'),
   status: text('status', { enum: ['todo', 'in_progress', 'done'] }).notNull().default('todo'),
   assignee: text('assignee'),
+  ownerEmail: text('owner_email').notNull().default('visitor'),
   deadline: timestamp('deadline'),
   startedAt: timestamp('started_at'),
   completedAt: timestamp('completed_at'),
