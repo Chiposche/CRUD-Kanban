@@ -8,9 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "start": "node dist/server.cjs",
-    "deploy": "wrangler deploy",
-    "dev:worker": "wrangler dev",
+    "start": "tsx server.ts",
+    "deploy": "wrangler pages deploy dist",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
