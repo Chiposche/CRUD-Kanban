@@ -1,4 +1,4 @@
-name = "my-kanban-worker"
+name = "crud-kanban"
 main = "src/index.worker.ts"
 compatibility_date = "2024-04-03"
 
