@@ -1,0 +1,17 @@
+{
+  "name": "kanban-worker",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.worker.ts",
+  "scripts": {
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
+    "hono": "^4.12.16"
+  },
+  "devDependencies": {
+    "wrangler": "^3.50.0",
+    "@cloudflare/workers-types": "^4.20240403.0"
+  }
+}

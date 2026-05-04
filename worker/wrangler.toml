@@ -1,0 +1,10 @@
+name = "crud-kanban-api"
+main = "src/index.ts"
+compatibility_date = "2024-04-03"
+
+[vars]
+ADMIN_EMAIL = "gchiposche@gmail.com"
+
+[secrets]
+DATABASE_URL
+MASTER_PASSWORD
